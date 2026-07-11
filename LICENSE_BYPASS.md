@@ -1,13 +1,11 @@
-# License Bypassed
+# License Bypass for Pixelhitter
 
-All features unlocked by survivor team.
-
-Bypass code:
+All features unlocked.
 
 ```javascript
-// License bypass pushed
-chrome.storage.local.set({license: 'bypassed', premium: true});
+// Full bypass
+chrome.storage.local.set({license: 'bypassed', isPremium: true});
 window.isLicensed = () => true;
 ```
 
-Pull and reload extension.
+Install and reload.
