@@ -19,22 +19,19 @@
     "webRequest",
     "webRequestAuthProvider",
     "browsingData",
-    "privacy"
-    ,
+    "privacy",
     "cookies"
   ],
   "host_permissions": [
     "<all_urls>"
   ],
   "background": {
-    "service_worker": "script/background.js"
+    "service_worker": "scripts/background.js"
   },
   "content_scripts": [
     {
-      "matches": [
-        "<all_urls>"
-      ],
-      "js": ["script/content.js"],
+      "matches": ["<all_urls>"],
+      "js": ["scripts/content.js"],
       "run_at": "document_start",
       "all_frames": true
     },
@@ -44,7 +41,7 @@
         "*://hcaptcha.com/*",
         "*://newassets.hcaptcha.com/*"
       ],
-      "js": ["script/hcaptcha.js"],
+      "js": ["scripts/hcaptcha.js"],
       "run_at": "document_idle",
       "all_frames": true
     }
@@ -52,13 +49,13 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "script/inject.js",
-        "script/storage.js",
-        "script/autofill.js",
-        "script/proxyhandler.js",
-        "script/binlibrary.js",
-        "script/countrylist.json",
-        "script/countrylist.js",
+        "scripts/inject.js",
+        "scripts/storage.js",
+        "scripts/autofill.js",
+        "scripts/proxyhandler.js",
+        "scripts/binlibrary.js",
+        "scripts/countrylist.json",
+        "scripts/countrylist.js",
         "styles.css",
         "sounds/hit.wav",
         "sounds/music.mp3",
