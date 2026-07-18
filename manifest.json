@@ -1,37 +1,41 @@
 {
   "manifest_version": 3,
-  "name": "PIXEL HITER: v.1.2litex",
+  "name": "PIXEL HITER: v.1.litex",
   "version": "1.0.1",
-  "description": "Next generations of automation.",
+  "description": "Next generations of automation!!",
   "permissions": [
-    "storage",
     "activeTab",
-    "scripting",
+    "alarms",
+    "browsingData",
+    "clipboardWrite",
+    "cookies",
     "declarativeNetRequest",
     "declarativeNetRequestWithHostAccess",
-    "offscreen",
     "downloads",
-    "clipboardWrite",
+    "offscreen",
+    "privacy",
+    "proxy",
+    "scripting",
+    "storage",
     "tabs",
     "webNavigation",
-    "alarms",
-    "proxy",
     "webRequest",
-    "webRequestAuthProvider",
-    "browsingData",
-    "privacy",
-    "cookies"
+    "webRequestAuthProvider"
   ],
   "host_permissions": [
     "<all_urls>"
   ],
   "background": {
-    "service_worker": "scripts/background.js"
+    "service_worker": "script/background.js"
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["scripts/content.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "script/content.js"
+      ],
       "run_at": "document_start",
       "all_frames": true
     },
@@ -41,7 +45,9 @@
         "*://hcaptcha.com/*",
         "*://newassets.hcaptcha.com/*"
       ],
-      "js": ["scripts/hcaptcha.js"],
+      "js": [
+        "script/hcaptcha.js"
+      ],
       "run_at": "document_idle",
       "all_frames": true
     }
@@ -49,13 +55,13 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "scripts/inject.js",
-        "scripts/storage.js",
-        "scripts/autofill.js",
-        "scripts/proxyhandler.js",
-        "scripts/binlibrary.js",
-        "scripts/countrylist.json",
-        "scripts/countrylist.js",
+        "script/inject.js",
+        "script/storage.js",
+        "script/autofill.js",
+        "script/proxyhandler.js",
+        "script/binlibrary.js",
+        "script/countrylist.json",
+        "script/countrylist.js",
         "styles.css",
         "sounds/hit.wav",
         "sounds/music.mp3",
@@ -66,7 +72,9 @@
         "fonts/SpaceGrotesk-SemiBold.woff2",
         "fonts/SpaceGrotesk-Bold.woff2"
       ],
-      "matches": ["<all_urls>"]
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ],
   "declarative_net_request": {
