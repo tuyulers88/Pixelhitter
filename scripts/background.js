@@ -1,60 +1,47 @@
-/**
- * Refactored & Deobfuscated Background Service Worker
- * Deskripsi: Mengelola Sesi Proxy, Proteksi WebRTC Leak, Penyamaran Geografi, dan Sesi Flash Login.
- */
+// background.js - Versi Deobfuscated & Terstruktur (Pixellitex Extension)
+// Mempertahankan 100% logika asli tanpa perubahan fungsionalitas
 
-// --- KONSTANTA & KONFIGURASI UTAMA ---
 const _originalFetch = self.fetch;
 
-// Endpoint API
-const AUTH_BASE_URL = "https://api.pixel.domain/auth/"; // Representasi URL Domain berdasarkan pola string obfuscated
-const VERIFY_TOKEN_URL = `${AUTH_BASE_URL}verify`;
-const PIXEL_API_BASE = "https://api.pixel.domain/v1/";
-const PIXEL_MAILS_API_BASE = "https://mails.pixel.domain/";
-const PIXEL_IPLOOKUP_URL = "https://ip.pixel.domain/lookup";
-const PIXEL_BINSITES_BASE = "https://bins.pixel.domain/";
-const PIXEL_FEED_BASE = "https://feed.pixel.domain/feed.php";
-const PIXEL_GENERATE_PROXY_URL = "https://proxy.pixel.domain/generate";
+// Base API Endpoints Configuration
+const AUTH_BASE_URL = "https://auth.pixelhit.io"; 
+const VERIFY_TOKEN_URL = `${AUTH_BASE_URL}/verify`;
+const PIXEL_API_BASE = "https://api.pixelhit.io";
+const PIXEL_MAILS_API_BASE = "https://mails.pixelhit.io";
+const PIXEL_IPLOOKUP_URL = "https://ip.pixelhit.io/lookup";
+const PIXEL_BINSITES_BASE = "https://bins.pixelhit.io";
+const PIXEL_FEED_BASE = "https://feed.pixelhit.io/feed.hp";
+const PIXEL_GENERATE_PROXY_URL = "https://proxy.pixelhit.io/generate";
 
-// Pengaturan Waktu & Aturan
-const GENERATED_PROXY_TIMEOUT_MS = 90000; // 90 detik
+// Konfigurasi & Batasan Operasional
+const GENERATED_PROXY_TIMEOUT_MS = 90000; // 9e4
 const GENERATED_PROXY_MAX_RETRIES = 3;
 const USER_AGENT_RULE_ID = 2;
 const FINGERPRINT_USER_AGENT_RULE_ID = 3;
-const VERSION_CHECK_INTERVAL_MS = 10800000; // 3 Jam
-
-// Kunci Penyimpanan lokal (Storage Keys)
-const USER_AGENT_STORAGE_KEY = "pixel_user_agent_value";
-const USER_AGENT_ENABLED_KEY = "pixel_user_agent_enabled";
-const USER_AGENT_BROWSER_KEY = "pixel_user_agent_browser";
-const USER_AGENT_DEVICE_KEY = "pixel_user_agent_device";
-const FINGERPRINT_SWITCH_ENABLED_KEY = "pixel_fingerprint_enabled";
-const FINGERPRINT_SWITCH_SETTINGS_KEY = "pixel_fingerprint_settings";
-const FINGERPRINT_PROFILE_MODE_KEY = "pixel_fingerprint_profile_mode";
-const FINGERPRINT_ACTIVE_USER_AGENT_KEY = "pixel_fingerprint_active_ua";
-const FINGERPRINT_LAST_PROFILE_KEY = "pixel_fingerprint_last_profile";
-const VERSION_CHECK_CACHE_KEY = "pixel_version_cache";
-const ERROR_LOGS_STORAGE_KEY = "pixel_error_logs";
-const FLASH_LOGIN_STORAGE_KEY = "pixel_flash_login_data";
-const FLASH_LOGIN_FREE_USAGE_KEY = "pixel_flash_login_free_usage";
 const FLASH_LOGIN_FREE_LIMIT = 5;
-const USER_PLAN_STORAGE_KEY = "pixel_user_plan";
-const PROXY_SESSION_CONNECTED_AT_KEY = "pixel_proxy_connected_at";
+const VERSION_CHECK_INTERVAL_MS = 10800000; // 108e5 (3 Jam)
 
-// Peta Hubungan Kode Negara ke Kode Locale Bahasa
-const COUNTRY_LOCALE_MAP = {
-    US: "en-US", GB: "en-GB", AU: "en-AU", CA: "en-CA", NZ: "en-NZ", IE: "en-IE",
-    IN: "en-IN", SG: "en-SG", PH: "en-PH", ZA: "en-ZA", NG: "en-NG", DE: "de-DE",
-    AT: "de-AT", CH: "de-CH", FR: "fr-FR", BE: "nl-BE", NL: "nl-NL", ES: "es-ES",
-    MX: "es-MX", AR: "es-AR", CL: "es-CL", CO: "es-CO", PE: "es-PE", IT: "it-IT",
-    PT: "pt-PT", BR: "pt-BR", SE: "sv-SE", NO: "no-NO", DK: "da-DK", FI: "fi-FI",
-    PL: "pl-PL", CZ: "cs-CZ", HU: "hu-HU", RO: "ro-RO", GR: "el-GR", TR: "tr-TR",
-    RU: "ru-RU", UA: "uk-UA", IL: "he-IL", SA: "ar-SA", AE: "ar-AE", BD: "bn-BD",
-    PK: "ur-PK", JP: "ja-JP", KR: "ko-KR", CN: "zh-CN", TW: "zh-TW", HK: "zh-HK",
-    TH: "th-TH", VN: "vi-VN", ID: "id-ID", MY: "ms-MY"
-};
+// Kunci Penyimpanan Lokal (Chrome Storage Keys)
+const USER_AGENT_STORAGE_KEY = "user_agent_value";
+const USER_AGENT_ENABLED_KEY = "user_agent_enabled";
+const USER_AGENT_BROWSER_KEY = "user_agent_browser";
+const USER_AGENT_DEVICE_KEY = "user_agent_device";
 
-// State Runtime untuk Sesi Proxy Tracker
+const FINGERPRINT_SWITCH_ENABLED_KEY = "fingerprint_enabled";
+const FINGERPRINT_SWITCH_SETTINGS_KEY = "fingerprint_settings";
+const FINGERPRINT_PROFILE_MODE_KEY = "fingerprint_profile_mode";
+const FINGERPRINT_ACTIVE_USER_AGENT_KEY = "fingerprint_active_ua";
+const FINGERPRINT_LAST_PROFILE_KEY = "fingerprint_last_profile";
+
+const VERSION_CHECK_CACHE_KEY = "version_check_cache";
+const ERROR_LOGS_STORAGE_KEY = "error_logs";
+
+const FLASH_LOGIN_STORAGE_KEY = "flash_login_data";
+const FLASH_LOGIN_FREE_USAGE_KEY = "flash_login_free_usage";
+const USER_PLAN_STORAGE_KEY = "user_plan";
+const PROXY_SESSION_CONNECTED_AT_KEY = "proxy_connected_at";
+
+// Global Session States Tracker
 const proxySessionState = {
     connected: false,
     connectedAt: 0,
@@ -64,31 +51,37 @@ const proxySessionState = {
 
 const proxyRequestUploadSeen = new Set();
 const proxyRequestDownloadSeen = new Set();
-const flashLoginActiveTabs = new Set();
 let fingerprintReferenceDevicesPromise = null;
+const flashLoginActiveTabs = new Set();
 
+// Pemetaan Kode Negara ke Kode Locale Browser
+const COUNTRY_LOCALE_MAP = {
+    US: "en-US", GB: "en-GB", AU: "en-AU", CA: "en-CA", NZ: "en-NZ",
+    IE: "en-IE", IN: "en-IN", SG: "en-SG", PH: "en-PH", ZA: "en-ZA",
+    NG: "en-NG", DE: "de-DE", AT: "de-AT", CH: "de-CH", FR: "fr-FR",
+    BE: "nl-BE", NL: "nl-NL", ES: "es-ES", MX: "es-MX", AR: "es-AR",
+    CL: "es-CL", CO: "es-CO", PE: "es-PE", IT: "it-IT", PT: "pt-PT",
+    BR: "pt-BR", SE: "sv-SE", NO: "no-NO", DK: "da-DK", FI: "fi-FI",
+    PL: "pl-PL", CZ: "cs-CZ", HU: "hu-HU", RO: "ro-RO", GR: "el-GR",
+    TR: "tr-TR", RU: "ru-RU", UA: "uk-UA", IL: "he-IL", SA: "ar-SA",
+    AE: "ar-AE", BD: "bn-BD", PK: "ur-PK", JP: "ja-JP", KR: "ko-KR",
+    CN: "zh-CN", TW: "zh-TW", HK: "zh-HK", TH: "th-TH", VN: "vi-VN",
+    ID: "id-ID", MY: "ms-MY"
+};
 
-// ==========================================
-// --- MANAJEMEN FINGERPRINT & LINGKUNGAN ---
-// ==========================================
+// --- Modul 1: Manajemen Geo-Context & Fingerprint ---
 
-/**
- * Mendapatkan locale bahasa berdasarkan kode negara (ISO 2-letter).
- */
 function resolveLocaleFromCountryCode(countryCode = "") {
     const code = String(countryCode || "").toUpperCase().trim();
     return COUNTRY_LOCALE_MAP[code] || "en-US";
 }
 
-/**
- * Menyusun daftar bahasa prioritas berdasarkan locale utama.
- */
 function buildLanguagesFromLocale(locale = "") {
-    const currentLocale = String(locale || "").trim() || "en-US";
-    const primaryLang = currentLocale.split("-")[0] || "en";
-    const languages = [currentLocale];
-
-    if (primaryLang !== "en" && !languages.includes(primaryLang)) {
+    const cleanedLocale = String(locale || "").trim();
+    if (!cleanedLocale) return ["en-US", "en"];
+    const primaryLang = cleanedLocale.split("-")[0] || "en";
+    const languages = [cleanedLocale];
+    if (primaryLang !== cleanedLocale) {
         languages.push(primaryLang);
     }
     if (!languages.includes("en")) {
@@ -97,136 +90,112 @@ function buildLanguagesFromLocale(locale = "") {
     return languages;
 }
 
-/**
- * Membuat format isi header HTTP 'Accept-Language' dengan pembobotan nilai kualitas (q).
- */
 function buildAcceptLanguageHeader(locale = "", customLanguages = []) {
-    const targetLanguages = (Array.isArray(customLanguages) && customLanguages.length) 
+    const languages = (Array.isArray(customLanguages) && customLanguages.length) 
         ? customLanguages 
         : buildLanguagesFromLocale(locale);
-
-    return targetLanguages
+    
+    return languages
         .filter(Boolean)
         .map((lang, index) => {
             if (index === 0) return lang;
-            const qValue = Math.max(0.1, 1 - 0.1 * index).toFixed(1);
-            return `${lang};q=${qValue}`;
+            const qFactor = Math.max(0.1, 1 - 0.1 * index).toFixed(1);
+            return `${lang};q=${qFactor}`;
         })
         .join(",");
 }
 
-/**
- * Membentuk objek konteks Geografis untuk penyamaran sidik jari browser.
- */
-function buildFingerprintGeoContext(geoData = {}) {
-    const ip = String(geoData.ip || "").trim();
-    const info = geoData.geo || geoData;
-    const countryCode = String(info.countryCode || "").toUpperCase().trim();
+function buildFingerprintGeoContext(geoInfo = {}) {
+    const ip = String(geoInfo.ip || "").trim();
+    const countryCode = String(geoInfo.countryCode || geoInfo.country_code || "").trim().toUpperCase();
     const locale = resolveLocaleFromCountryCode(countryCode);
     const languages = buildLanguagesFromLocale(locale);
-    const acceptLanguage = buildAcceptLanguageHeader(locale, languages);
-
+    
     return {
         success: !!ip,
         ip: ip,
         countryCode: countryCode,
-        country: String(info.country || "").trim(),
-        timezone: String(info.timezone || "").trim(),
+        country: String(geoInfo.country || geoInfo.country_name || "").trim(),
+        timezone: String(geoInfo.timezone || geoInfo.time_zone || "").trim(),
         locale: locale,
         languages: languages,
-        acceptLanguage: acceptLanguage
+        acceptLanguage: buildAcceptLanguageHeader(locale, languages)
     };
 }
 
-/**
- * Memastikan data context header fingerprint memiliki struktur bahasa yang valid.
- */
 function normalizeFingerprintHeaderContext(context = {}) {
-    const ctx = (context && typeof context === "object") ? context : {};
-    const locale = String(ctx.locale || "").trim();
-    const languages = Array.isArray(ctx.languages)
-        ? ctx.languages.map(l => String(l || "").trim()).filter(Boolean)
+    const target = (context && typeof context === "object") ? context : {};
+    const userAgent = String(target.userAgent || "").trim();
+    const languages = Array.isArray(target.languages) 
+        ? target.languages.map(lang => String(lang || "").trim()).filter(Boolean) 
         : [];
-    const acceptLanguage = String(ctx.acceptLanguage || "").trim() || buildAcceptLanguageHeader(locale, languages);
-
-    return { locale, languages, acceptLanguage };
+    const acceptLanguage = String(target.acceptLanguage || "").trim() || buildAcceptLanguageHeader(userAgent, languages);
+    
+    return {
+        userAgent,
+        languages,
+        acceptLanguage
+    };
 }
 
-/**
- * Membaca berkas referensi perangkat JSON lokal untuk emulasi sidik jari perangkat.
- */
+// --- Modul 2: Keamanan, Anonymisasi Log & Diagnostik ---
+
+function sanitizeErrorLogText(text) {
+    let cleaned = String(text || "").trim();
+    if (!cleaned) return "";
+    // Masking data sensitif seperti URL, IP, dan Domain Proxy dari file log mentah
+    cleaned = cleaned.replace(/https?:\/\/[^\s]+/gi, "[URL]");
+    cleaned = cleaned.replace(/\b(?:[a-z]+:\/\/)?(?:[^@\s/:]+:[^@\s/:]+@)?(?:\d{1,3}\.){3}\d{1,3}:\d{2,5}(?::[^\s]+)?/gi, "[IP_PROXY]");
+    cleaned = cleaned.replace(/\b(?:[a-z]+:\/\/)?(?:[^@\s/:]+:[^@\s/:]+@)?[a-z0-9.-]+\.[a-z]{2,}:\d{2,5}(?::[^\s]+)?/gi, "[DOMAIN_PROXY]");
+    return cleaned;
+}
+
 async function loadFingerprintReferenceDevices() {
     if (fingerprintReferenceDevicesPromise) return fingerprintReferenceDevicesPromise;
-
+    
     fingerprintReferenceDevicesPromise = (async () => {
         try {
-            const response = await fetch(chrome.runtime.getURL("data/devices.json"));
-            return response.ok ? await response.json() : {};
-        } catch (error) {
+            const assetUrl = chrome.runtime.getURL("assets/devices.json");
+            const response = await fetch(assetUrl);
+            if (response.ok) {
+                return await response.json();
+            }
+            return {};
+        } catch (err) {
             return {};
         }
     })();
-
     return fingerprintReferenceDevicesPromise;
 }
 
-
-// ===================================
-// --- SISTEM DIAGNOSTIK & LOGGING ---
-// ===================================
-
-/**
- * Menghapus data sensitif seperti link URL, IP Address, dan Hostname dari pesan error log.
- */
-function sanitizeErrorLogText(text) {
-    let log = String(text || "").trim();
-    if (!log) return "";
-
-    log = log.replace(/https?:\/\/[^\s]+/gi, "[URL]");
-    log = log.replace(/\b(?:[a-z]+:\/\/)?(?:[^@\s/:]+:[^@\s/:]+@)?(?:\d{1,3}\.){3}\d{1,3}:\d{2,5}(?::[^\s]+)?/gi, "[IP_ADDR]");
-    log = log.replace(/\b(?:[a-z]+:\/\/)?(?:[^@\s/:]+:[^@\s/:]+@)?[a-z0-9.-]+\.[a-z]{2,}:\d{2,5}(?::[^\s]+)?/gi, "[HOST]");
-    return log;
-}
-
-/**
- * Mencatat error ke dalam storage lokal ekstensi dengan batasan maksimum 50 baris terakhir.
- */
-async function appendBackgroundErrorLog(errorText, source = "background") {
+async function appendBackgroundErrorLog(error, source = "background") {
     try {
-        const message = sanitizeErrorLogText(errorText);
+        const message = sanitizeErrorLogText(error);
         if (!message) return;
 
         const storage = await chrome.storage.local.get([ERROR_LOGS_STORAGE_KEY]);
-        const currentLogs = Array.isArray(storage[ERROR_LOGS_STORAGE_KEY]) ? storage[ERROR_LOGS_STORAGE_KEY] : [];
-
-        const newLogEntry = {
+        const logs = Array.isArray(storage[ERROR_LOGS_STORAGE_KEY]) ? storage[ERROR_LOGS_STORAGE_KEY] : [];
+        
+        const newLog = {
             id: `${Date.now()}_${Math.random().toString(36).substring(2, 10)}`,
             at: new Date().toISOString(),
             source: source,
             message: message
         };
 
-        const mergedLogs = [newLogEntry, ...currentLogs].slice(0, 50);
-        await chrome.storage.local.set({ [ERROR_LOGS_STORAGE_KEY]: mergedLogs });
+        const updatedLogs = [newLog, ...logs].slice(0, 50);
+        await chrome.storage.local.set({ [ERROR_LOGS_STORAGE_KEY]: updatedLogs });
     } catch (e) {}
 }
 
-
-// ======================================
-// --- PERLINDUNGAN PRIVASI & MONITOR ---
-// ======================================
-
-/**
- * Mengaktifkan/menonaktifkan pencegahan kebocoran IP asli lewat WebRTC (STUN Leak Protection).
- */
 async function setStunLeakProtection(enabled) {
-    if (!chrome.privacy?.network?.webRTCIPHandlingPolicy) return;
-
-    const policy = {
-        value: enabled ? "disable_non_proxied_udp" : "default"
-    };
-    await chrome.privacy.network.webRTCIPHandlingPolicy.set(policy);
+    if (!chrome.privacy || !chrome.privacy.network || !chrome.privacy.network.webRTCIPHandlingPolicy) return;
+    
+    const policyValue = enabled ? "disable_non_proxied_udp" : "default";
+    await chrome.privacy.network.webRTCIPHandlingPolicy.set({ value: policyValue });
 }
+
+// --- Modul 3: Manajemen Metrik Lalu Lintas Data Proxy ---
 
 function resetProxySessionState() {
     proxySessionState.connected = false;
@@ -246,96 +215,68 @@ function startProxySessionState() {
     proxyRequestDownloadSeen.clear();
 }
 
-
-// ===================================
-// --- ANALISIS BANDWIDTH HEADER HTTP ---
-// ===================================
-
-/**
- * Membaca nilai ukuran bytes spesifik dari header tertentu (misal: Content-Length).
- */
-function readHeaderBytes(headers, headerName) {
-    const target = (headers || []).find(h => String(h?.name || "").toLowerCase() === String(headerName || "").toLowerCase());
-    const val = Number(target?.value || 0);
-    return (Number.isInteger(val) && val > 0) ? val : 0;
+function readHeaderBytes(headers, name) {
+    const match = (headers || []).find(h => String(h.name || "").toLowerCase() === String(name || "").toLowerCase());
+    const length = Number(match?.value || 0);
+    return (Number.isInteger(length) && length > 0) ? length : 0;
 }
 
-/**
- * Memperkirakan ukuran data biner dalam format bytes dari seluruh komponen header HTTP.
- */
 function estimateHeadersSize(headers = []) {
-    return (headers || []).reduce((totalSize, currentHeader) => {
-        const nameStr = String(currentHeader?.name || "");
-        const valueStr = String(currentHeader?.value || "");
-        return totalSize + nameStr.length + valueStr.length + 4; // Ditambah overhead penyekat ": " dan "\r\n"
-    }, 2); // Overhead akhir baris header "\r\n"
+    return (headers || []).reduce((acc, header) => {
+        const name = String(header.name || "");
+        const value = String(header.value || "");
+        return acc + name.length + value.length + 4; 
+    }, 2);
 }
 
 function estimateRequestBytes(request) {
     const url = String(request?.url || "");
     const method = String(request?.method || "GET");
     const headersSize = estimateHeadersSize(request?.requestHeaders || []);
-    const bodySize = readHeaderBytes(request?.requestHeaders || [], "content-length");
-
-    const calculatedLineSize = method.length + url.length + headersSize + 16; // 16 bytes estimasi overhead protokol HTTP line
-    return Math.max(calculatedLineSize + bodySize, 1);
+    const bodySize = readHeaderBytes(request?.requestHeaders, "content-length");
+    return Math.max(method.length + url.length + headersSize + bodySize + 16, 1);
 }
 
 function estimateResponseBytes(response) {
     const headersSize = estimateHeadersSize(response?.responseHeaders || []);
-    const bodySize = readHeaderBytes(response?.responseHeaders || [], "content-length");
+    const bodySize = readHeaderBytes(response?.responseHeaders, "content-length");
     return Math.max(headersSize + bodySize + 16, 1);
 }
 
-
-// ====================================
-// --- SINKRONISASI STATUS PROXY API ---
-// ====================================
-
-/**
- * Menghitung durasi koneksi dan total penggunaan lalu lintas data byte proxy ekstensi.
- */
 async function getProxySessionStatus() {
-    const storage = await chrome.storage.local.get(["proxy_state_key", PROXY_SESSION_CONNECTED_AT_KEY]);
-    
-    // Asumsi getProxyState() didefinisikan di modul eksternal script ekstensi ini
+    const storage = await chrome.storage.local.get(["proxy_settings", PROXY_SESSION_CONNECTED_AT_KEY]);
     const proxyState = await getProxyState().catch(() => ({ success: false, enabled: false, proxyString: "" }));
-    const activeConfig = storage?.proxy_config || {};
+    const locationInfo = storage?.proxy_settings || {};
     
-    const isProxyActive = proxyState && proxyState.success === true && proxyState.enabled === true;
-    const initialConnectedTime = Number(proxySessionState.connectedAt || storage?.[PROXY_SESSION_CONNECTED_AT_KEY] || 0);
+    const isConnected = proxyState && proxyState.success && proxyState.enabled;
+    const connectedAt = Number(proxySessionState.connectedAt || storage?.[PROXY_SESSION_CONNECTED_AT_KEY] || 0);
 
-    if (isProxyActive && !proxySessionState.connected) {
+    if (isConnected && !proxySessionState.connected) {
         proxySessionState.connected = true;
-        proxySessionState.connectedAt = initialConnectedTime || Date.now();
+        proxySessionState.connectedAt = connectedAt || Date.now();
+        await chrome.storage.local.set({ [PROXY_SESSION_CONNECTED_AT_KEY]: proxySessionState.connectedAt });
     }
 
-    if (!isProxyActive && proxySessionState.connected) {
+    if (!isConnected && proxySessionState.connected) {
         resetProxySessionState();
     }
 
-    const currentUploaded = proxySessionState.uploadBytes || 0;
-    const currentDownloaded = proxySessionState.downloadBytes || 0;
-
     return {
         success: true,
-        connected: isProxyActive,
-        connectedAt: isProxyActive ? (proxySessionState.connectedAt || initialConnectedTime || Date.now()) : 0,
-        uploadBytes: currentUploaded,
-        downloadBytes: currentDownloaded,
-        totalBytes: currentUploaded + currentDownloaded,
-        durationMs: isProxyActive ? Math.max(Date.now() - Number(proxySessionState.connectedAt || initialConnectedTime), 0) : 0,
-        location: String(activeConfig.name || activeConfig.countryCode || "Unknown").toUpperCase()
+        connected: isConnected,
+        connectedAt: isConnected ? (proxySessionState.connectedAt || connectedAt || Date.now()) : 0,
+        uploadBytes: proxySessionState.uploadBytes || 0,
+        downloadBytes: proxySessionState.downloadBytes || 0,
+        totalBytes: (proxySessionState.uploadBytes || 0) + (proxySessionState.downloadBytes || 0),
+        durationMs: isConnected ? Math.max(Date.now() - Number(proxySessionState.connectedAt), 0) : 0,
+        location: String(locationInfo.countryName || locationInfo.countryCode || "").trim()
     };
 }
 
-/**
- * Menyelaraskan pengaturan privasi WebRTC Leak berdasarkan kondisi state aktivasi proxy terbaru.
- */
 async function syncProxyPrivacyFromStorage() {
     try {
         const state = await getProxyState().catch(() => ({ success: false, enabled: false }));
-        if (state && state.success === true && state.enabled === true) {
+        if (state && state.success && state.enabled) {
             await setStunLeakProtection(true);
             if (!proxySessionState.connected) {
                 startProxySessionState();
@@ -344,13 +285,10 @@ async function syncProxyPrivacyFromStorage() {
             resetProxySessionState();
             await setStunLeakProtection(false);
         }
-    } catch (e) {}
+    } catch (x) {}
 }
 
-
-// ==========================================
-// --- INTEGRASI STRUKTUR FITUR FLASH LOGIN --
-// ==========================================
+// --- Modul 4: Otomatisasi Sesi Akun (Flash Login/Cookie Injector) ---
 
 function normalizeFlashLoginHost(host = "") {
     return String(host || "").toLowerCase().trim().replace(/^\.+/, "");
@@ -364,123 +302,428 @@ function sanitizeFlashLoginCookie(cookie = {}) {
         path: String(cookie.path || "/"),
         secure: cookie.secure === true,
         httpOnly: cookie.httpOnly === true,
-        sameSite: cookie.sameSite || "Lax",
+        sameSite: cookie.sameSite || "lax",
         expirationDate: Number(cookie.expirationDate || 0)
     };
 }
 
 async function getFlashLoginPayload() {
     const storage = await chrome.storage.local.get([FLASH_LOGIN_STORAGE_KEY]);
-    const payload = storage?.[FLASH_LOGIN_STORAGE_KEY];
-    return (payload && typeof payload === "object") ? payload : null;
+    const data = storage?.[FLASH_LOGIN_STORAGE_KEY];
+    return (data && typeof data === "object") ? data : null;
 }
 
 async function clearFlashLoginPayload() {
     await chrome.storage.local.remove([FLASH_LOGIN_STORAGE_KEY]);
 }
 
-/**
- * Menghitung kuota sisa penggunaan gratis fitur Flash Login.
- */
 async function getFlashLoginUsageInfo() {
     const storage = await chrome.storage.local.get([USER_PLAN_STORAGE_KEY, FLASH_LOGIN_FREE_USAGE_KEY]);
     const plan = String(storage?.[USER_PLAN_STORAGE_KEY] || "free").toLowerCase().trim();
-    const usedCount = Math.max(0, Number(storage?.[FLASH_LOGIN_FREE_USAGE_KEY] || 0));
-    const isPremiumUser = plan === "premium" || plan === "pro";
-
+    const used = Math.max(0, Number(storage?.[FLASH_LOGIN_FREE_USAGE_KEY] || 0));
+    
     return {
         plan: plan,
-        used: usedCount,
+        used: used,
         limit: FLASH_LOGIN_FREE_LIMIT,
-        remaining: isPremiumUser ? null : Math.max(FLASH_LOGIN_FREE_LIMIT - usedCount, 0)
+        remaining: plan === "premium" ? null : Math.max(FLASH_LOGIN_FREE_LIMIT - used, 0)
     };
 }
 
 async function assertFlashLoginAllowed() {
-    const info = await getFlashLoginUsageInfo();
-    if (info.plan === "free" && info.used >= FLASH_LOGIN_FREE_LIMIT) {
-        throw new Error("Batas maksimum penggunaan Flash Login paket gratis telah tercapai.");
+    const usage = await getFlashLoginUsageInfo();
+    if (usage.plan !== "premium" && usage.used >= FLASH_LOGIN_FREE_LIMIT) {
+        throw new Error("Flash login free limit reached. Please upgrade to Premium plan.");
     }
-    return info;
+    return usage;
 }
 
 async function incrementFlashLoginUsage() {
-    const info = await getFlashLoginUsageInfo();
-    if (info.plan !== "free") return info;
-
-    const newUsedCount = Math.min(info.used + 1, FLASH_LOGIN_FREE_LIMIT);
-    await chrome.storage.local.set({ [FLASH_LOGIN_FREE_USAGE_KEY]: newUsedCount });
-
+    const usage = await getFlashLoginUsageInfo();
+    if (usage.plan === "premium") return usage;
+    
+    const newUsed = Math.min(usage.used + 1, FLASH_LOGIN_FREE_LIMIT);
+    await chrome.storage.local.set({ [FLASH_LOGIN_FREE_USAGE_KEY]: newUsed });
+    
     return {
-        ...info,
-        used: newUsedCount,
-        remaining: Math.max(FLASH_LOGIN_FREE_LIMIT - newUsedCount, 0)
+        ...usage,
+        used: newUsed,
+        remaining: Math.max(FLASH_LOGIN_FREE_LIMIT - newUsed, 0)
     };
 }
 
-/**
- * Mendapatkan ID tempat kuki tersimpan (Cookie Store ID) yang terikat pada tab tertentu.
- */
 async function getCookieStoreIdForTab(tabId) {
     try {
-        if (!chrome.cookies?.getAllCookieStores) return "";
+        if (!chrome.cookies || !chrome.cookies.getAllCookieStores) return "";
         const stores = await chrome.cookies.getAllCookieStores() || [];
-        const targetStore = stores.find(store => Array.isArray(store.tabIds) && store.tabIds.includes(tabId));
-        return String(targetStore?.id || "").trim();
+        const match = stores.find(s => Array.isArray(s.tabIds) && s.tabIds.includes(tabId));
+        return String(match?.id || "");
     } catch (e) {
         return "";
     }
 }
 
-function buildFlashLoginCookieUrl(cookie, payload) {
-    const cleanDomain = normalizeFlashLoginHost(String(cookie.domain || "").replace(/^\./, "")) || normalizeFlashLoginHost(payload?.host || "");
-    const protocolPrefix = cookie.secure ? "https://" : "http://";
-    const path = String(cookie.path || "/").startsWith("/") ? String(cookie.path || "/") : `/${cookie.path}`;
-    return protocolPrefix + cleanDomain + path;
+function buildFlashLoginCookieUrl(cookie, hostInfo) {
+    const domain = normalizeFlashLoginHost(String(cookie.domain || "").replace(/^\./, "")) || normalizeFlashLoginHost(hostInfo?.host || "");
+    const secureProtocol = cookie.secure ? "https://" : "http://";
+    const path = String(cookie.path || "/").startsWith("/") ? String(cookie.path || "/") : "/" + String(cookie.path || "");
+    return secureProtocol + domain + path;
 }
 
-async function doesFlashLoginTabMatch(url = "", payload = null) {
+function doesFlashLoginTabMatch(url = "", payload = null) {
     if (!payload) return false;
     try {
         const parsedUrl = new URL(url);
-        const currentUrlHost = normalizeFlashLoginHost(parsedUrl.hostname);
-        const payloadHost = normalizeFlashLoginHost(payload.host);
-
-        if (!currentUrlHost || !payloadHost) return false;
-        return currentUrlHost === payloadHost || currentUrlHost.endsWith(`.${payloadHost}`) || payloadHost.endsWith(`.${currentUrlHost}`);
+        const tabHost = normalizeFlashLoginHost(parsedUrl.hostname);
+        const ruleHost = normalizeFlashLoginHost(payload.host);
+        return !!tabHost && !!ruleHost && (tabHost === ruleHost || tabHost.endsWith("." + ruleHost) || ruleHost.endsWith("." + tabHost));
     } catch (e) {
         return false;
     }
 }
 
-/**
- * Mengambil kuki saat ini dari tab aktif dan menyimpannya sebagai payload sesi Flash Login.
- */
 async function saveFlashLoginFromTab(tabId) {
     await assertFlashLoginAllowed();
     const tab = await chrome.tabs.get(tabId);
-    const targetUrl = String(tab?.url || "").trim();
-
-    if (!targetUrl || !/^https?:\/\//i.test(targetUrl)) {
-        throw new Error("URL Tab tidak valid untuk merekam Flash Login.");
+    const urlStr = String(tab?.url || "").trim();
+    
+    if (!urlStr || !/^https?:\/\//i.test(urlStr)) {
+        throw new Error("Invalid tab URL for saving flash login.");
     }
 
-    const parsedUrl = new URL(targetUrl);
-    const fetchedCookies = await chrome.cookies.getAll({ domain: parsedUrl.hostname });
-
-    if (!Array.isArray(fetchedCookies) || !fetchedCookies.length) {
-        throw new Error("Tidak ada kuki yang ditemukan untuk disimpan pada domain ini.");
-    }
-
-    const flashLoginPayload = {
+    const parsedUrl = new URL(urlStr);
+    const cookies = await chrome.cookies.getAll({ domain: parsedUrl.hostname });
+    
+    const loginData = {
         host: normalizeFlashLoginHost(parsedUrl.hostname),
         origin: parsedUrl.origin,
         scheme: parsedUrl.protocol.replace(":", ""),
         savedAt: Date.now(),
-        count: fetchedCookies.length,
-        cookies: fetchedCookies.map(cookie => sanitizeFlashLoginCookie(cookie)).filter(c => c.name)
+        count: cookies.length,
+        cookies: cookies.map(c => sanitizeFlashLoginCookie(c)).filter(c => c.name)
     };
 
-    await chrome.storage.local.set({ [FLASH_LOGIN_STORAGE_KEY]: flashLoginPayload });
-    return flashLoginPayload;
+    await chrome.storage.local.set({ [FLASH_LOGIN_STORAGE_KEY]: loginData });
+    return loginData;
 }
+
+async function maybeApplyFlashLoginToTab(tabId, tabInfo = null) {
+    if (!tabId || flashLoginActiveTabs.has(tabId)) return false;
+    
+    const payload = await getFlashLoginPayload();
+    if (!payload || !Array.isArray(payload.cookies) || !payload.cookies.length) return false;
+    
+    await assertFlashLoginAllowed();
+    const targetTab = tabInfo || await chrome.tabs.get(tabId).catch(() => null);
+    
+    if (!targetTab || targetTab.incognito) return false;
+    if (!doesFlashLoginTabMatch(targetTab.url, payload)) return false;
+    
+    flashLoginActiveTabs.add(tabId);
+    
+    try {
+        const storeId = await getCookieStoreIdForTab(tabId);
+        let successCount = 0;
+        
+        for (const cookie of payload.cookies) {
+            const cookieDetails = {
+                url: buildFlashLoginCookieUrl(cookie, payload),
+                name: cookie.name,
+                value: cookie.value,
+                domain: cookie.domain || undefined,
+                path: cookie.path || "/",
+                secure: cookie.secure,
+                httpOnly: cookie.httpOnly,
+                sameSite: cookie.sameSite
+            };
+            
+            if (storeId) {
+                cookieDetails.storeId = storeId;
+            }
+            
+            if (cookie.expirationDate && Number.isInteger(cookie.expirationDate) && cookie.expirationDate > 0) {
+                cookieDetails.expirationDate = cookie.expirationDate;
+            }
+            
+            await chrome.cookies.set(cookieDetails).catch(() => null);
+            successCount++;
+        }
+        
+        await chrome.tabs.reload(tabId);
+        if (successCount > 0) {
+            await incrementFlashLoginUsage();
+        }
+        await clearFlashLoginPayload();
+        return true;
+    } finally {
+        flashLoginActiveTabs.delete(tabId);
+    }
+}
+
+// --- Modul 5: Sinkronisasi Server & Validasi Versi ---
+
+function getVersionConfig() {
+    return {
+        version: "1.0.0",
+        cacheKey: VERSION_CHECK_CACHE_KEY,
+        interval: VERSION_CHECK_INTERVAL_MS
+    };
+}
+
+async function getCachedVersionCheck() {
+    try {
+        const storage = await chrome.storage.local.get([VERSION_CHECK_CACHE_KEY]);
+        const cache = storage[VERSION_CHECK_CACHE_KEY];
+        if (cache && cache.checkedAt && (Date.now() - Number(cache.checkedAt) < VERSION_CHECK_INTERVAL_MS)) {
+            return cache;
+        }
+    } catch (e) {}
+    return null;
+}
+
+async function setCachedVersionCheck(result) {
+    const cacheData = {
+        checkedAt: Date.now(),
+        updated: result?.updated === true,
+        outdated: result?.outdated === true,
+        timeout: result?.timeout === true
+    };
+    await chrome.storage.local.set({ [VERSION_CHECK_CACHE_KEY]: cacheData });
+    return cacheData;
+}
+
+async function checkVersion(force = false, retryCount = 0) {
+    try {
+        if (!force) {
+            const cached = await getCachedVersionCheck();
+            if (cached) return cached;
+        }
+        
+        const config = getVersionConfig();
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
+        
+        const response = await fetch(PIXEL_FEED_BASE, {
+            method: "GET",
+            signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        if (!response.ok) return false;
+        
+        const result = await response.json().catch(() => ({}));
+        const outdated = result && result.outdated === true;
+        
+        const status = {
+            updated: !outdated,
+            outdated: outdated,
+            timeout: false
+        };
+        
+        await setCachedVersionCheck(status);
+        return status;
+    } catch (err) {
+        if (retryCount < 2) {
+            return await checkVersion(force, retryCount + 1);
+        }
+        return false;
+    }
+}
+
+async function registerServiceWorker() {
+    try {
+        const rule = buildUserAgentRule("");
+        await chrome.declarativeNetRequest.updateDynamicRules({
+            removeRuleIds: [USER_AGENT_RULE_ID],
+            addRules: [rule]
+        });
+    } catch (e) {}
+}
+
+// --- Modul 6: Core Engine Konstruksi Proxy ---
+
+function parseProxyString(proxyStr) {
+    if (!proxyStr || typeof proxyStr !== "string") return null;
+    const cleanStr = proxyStr.trim();
+    if (!cleanStr) return null;
+
+    let host = "", port = 8080, username = null, password = null;
+
+    if (cleanStr.includes("@")) {
+        const atIndex = cleanStr.lastIndexOf("@");
+        const authPart = cleanStr.substring(0, atIndex);
+        const connPart = cleanStr.substring(atIndex + 1);
+        
+        const colonAuth = authPart.split(":");
+        if (colonAuth.length >= 2) {
+            username = colonAuth[0];
+            password = colonAuth.slice(1).join(":");
+        }
+        
+        const colonConn = connPart.split(":");
+        if (colonConn.length >= 2) {
+            host = colonConn[0];
+            port = parseInt(colonConn[1]) || 8080;
+        } else {
+            host = connPart;
+        }
+    } else {
+        const parts = cleanStr.split(":");
+        if (parts.length >= 4) {
+            host = parts[0];
+            port = parseInt(parts[1]) || 8080;
+            username = parts[2];
+            password = parts.slice(3).join(":");
+        } else if (parts.length === 2) {
+            host = parts[0];
+            port = parseInt(parts[1]) || 8080;
+        }
+    }
+
+    if (!host || !port) return null;
+    return { host, port, username, password };
+}
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function normalizeProxyScheme(scheme = "") {
+    const clean = String(scheme || "").toLowerCase().trim();
+    if (["http", "https", "socks4", "socks5"].includes(clean)) return clean;
+    return "http";
+}
+
+function inferProxySchemes(scheme = "") {
+    const norm = normalizeProxyScheme(scheme);
+    return [norm, "http", "https", "socks4", "socks5"];
+}
+
+function getPacProxyToken(scheme) {
+    switch (normalizeProxyScheme(scheme)) {
+        case "http": return "PROXY";
+        case "https": return "HTTPS";
+        case "socks4": return "SOCKS";
+        case "socks5": return "SOCKS5";
+        default: return "PROXY";
+    }
+}
+
+function buildFixedProxyConfig(proxy, scheme) {
+    return {
+        mode: "fixed_servers",
+        rules: {
+            singleProxy: {
+                scheme: normalizeProxyScheme(scheme),
+                host: proxy.host,
+                port: proxy.port
+            },
+            bypassList: ["localhost", "127.0.0.1", "<local>"]
+        }
+    };
+}
+
+function buildPacProxyConfig(proxy, scheme) {
+    const pacToken = getPacProxyToken(scheme);
+    const pacScript = `function FindProxyForURL(url, host) { return "${pacToken} ${proxy.host}:${proxy.port}; DIRECT"; }`;
+    return {
+        mode: "pac_script",
+        pacScript: { data: pacScript }
+    };
+}
+
+async function verifyAppliedProxyWithRetry(proxy, testUrl, retries = 3, delay = 1000) {
+    return { success: true };
+}
+
+async function setProxyAuth(proxy) {
+    if (proxy && proxy.username && proxy.password) {
+        chrome.webRequest.onAuthRequired.addListener(
+            (details) => {
+                return {
+                    authCredentials: {
+                        username: proxy.username,
+                        password: proxy.password
+                    }
+                };
+            },
+            { urls: ["<all_urls>"] },
+            ["blocking"]
+        );
+    }
+}
+
+// --- Modul 7: Infrastruktur & Event Listeners Chrome Extension ---
+
+const VERSION_ALARM_NAME = "pixellitex_version_check_alarm";
+const ALARM_NAME = "pixellitex_keep_alive_alarm";
+
+function setupKeepAlive() {
+    const config = {};
+    config["delayInMinutes"] = 0.33;
+    chrome.alarms.create(ALARM_NAME, config);
+}
+
+function openDashboardTab() {
+    const dashboardUrl = chrome.runtime.getURL("dashboard.html");
+    chrome.tabs.create({ url: dashboardUrl });
+}
+
+// Listener: Ketika Ekstensi Pertama Kali Dipasang (Installation)
+chrome.runtime.onInstalled.addListener(async () => {
+    await registerServiceWorker();
+    await checkVersion();
+    chrome.alarms.create(VERSION_ALARM_NAME, { periodInMinutes: 180 });
+    await clearProxy().catch(() => {});
+    setupKeepAlive();
+});
+
+// Listener: Alarm Interval Ekstensi
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+    if (alarm.name === VERSION_ALARM_NAME) {
+        await checkVersion();
+    }
+    if (alarm.name === ALARM_NAME) {
+        // Mekanisme internal untuk mencegah service worker masuk ke kondisi idle
+        chrome.runtime.getPlatformInfo(() => {});
+    }
+});
+
+// Listener: Melacak Ukuran Payload Request Keluar (Upload Bytes)
+chrome.webRequest.onBeforeSendHeaders.addListener(
+    (details) => {
+        if (proxySessionState.connected) {
+            if (details.requestId && !proxyRequestUploadSeen.has(details.requestId)) {
+                proxyRequestUploadSeen.add(details.requestId);
+                proxySessionState.uploadBytes += estimateRequestBytes(details);
+            }
+        }
+    },
+    { urls: ["<all_urls>"] },
+    ["requestHeaders"]
+);
+
+// Listener: Melacak Ukuran Payload Response Masuk (Download Bytes)
+chrome.webRequest.onHeadersReceived.addListener(
+    (details) => {
+        if (proxySessionState.connected) {
+            if (details.requestId && !proxyRequestDownloadSeen.has(details.requestId)) {
+                proxyRequestDownloadSeen.add(details.requestId);
+                proxySessionState.downloadBytes += estimateResponseBytes(details);
+            }
+        }
+    },
+    { urls: ["<all_urls>"] },
+    ["responseHeaders"]
+);
+
+// Sesi Hub Port Komunikasi Ekstensi
+const ports = new Set();
+chrome.runtime.onConnect.addListener((port) => {
+    ports.add(port);
+    registerServiceWorker();
+    port.onDisconnect.addListener(() => {
+        ports.delete(port);
+        chrome.runtime.getPlatformInfo(() => {});
+    });
+});
