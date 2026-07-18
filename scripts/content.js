@@ -1,258 +1,239 @@
 /**
- * Refactored & Deobfuscated Content Script Engine
- * Nama Modul: PixelContentScript
- * Deskripsi: Mengelola penyuntikan proteksi privasi sidik jari runtime klien,
- * emulasi navigator.userAgentData, dan otomasi intersepsi Stripe Elements OpenAI.
+ * Pixellitex Autofill Engine - Content Script Component
+ * Menangani injeksi data form aman pada iframe target pembayaran.
  */
 
-(function() {
-    // --- KONSTANTA & CACHE KUNCI PENYIMPANAN ---
-    const FINGERPRINT_SWITCH_ENABLED_KEY = "pixel_fingerprint_protection_enabled";
-    const FINGERPRINT_SWITCH_MODE_KEY = "pixel_fingerprint_protection_mode";
-    const FINGERPRINT_PROFILE_MODE_KEY = "pixel_fingerprint_profile_generation_mode";
-    const FINGERPRINT_SWITCH_SETTINGS_KEY = "pixel_fingerprint_detailed_settings";
-    const FINGERPRINT_STATIC_PROFILE_KEY = "pixel_fingerprint_static_profile_data";
-    const FINGERPRINT_ACTIVE_USER_AGENT_KEY = "pixel_fingerprint_active_user_agent";
-    const FINGERPRINT_LAST_PROFILE_KEY = "pixel_fingerprint_last_generated_profile";
-    const FINGERPRINT_FREE_USAGE_KEY = "pixel_fingerprint_free_usage_counter";
-    const USER_PLAN_STORAGE_KEY = "pixel_user_plan_type";
-    const TEMP_MAIL_META_KEY = "pixel_temp_mail_metadata";
-    const SUCCESS_REDIRECT_FALLBACK_KEY = "pixel_success_redirect_fallback_token";
+const appliedWritesTracker = new Set();
+let executionDebounceTimer = null;
+let customAddressIndicatorEnabled = null;
 
-    // Konfigurasi Standar Perlindungan Runtime
-    const DEFAULT_FINGERPRINT_SETTINGS = {
-        userAgent: true, canvas: true, audio: true, webgl: true,
-        webgpu: true, voice: true, plugins: true, fonts: true,
-        screen: true, timezone: true
-    };
+// Konfigurasi Kunci Penyimpanan Lokal (Sesuai Manifest Shared Storage)
+const SUCCESS_REDIRECT_FALLBACK_KEY = "success_redirect_fallback";
+const FINGERPRINT_SWITCH_ENABLED_KEY = "fingerprint_enabled";
+const FINGERPRINT_SWITCH_MODE_KEY = "fingerprint_mode";
+const FINGERPRINT_PROFILE_MODE_KEY = "fingerprint_profile_mode";
+const FINGERPRINT_SWITCH_SETTINGS_KEY = "fingerprint_settings";
+const FINGERPRINT_STATIC_PROFILE_KEY = "fingerprint_static_profile";
+const FINGERPRINT_ACTIVE_USER_AGENT_KEY = "fingerprint_active_ua";
+const FINGERPRINT_FREE_USAGE_KEY = "fingerprint_free_usage";
+const USER_PLAN_STORAGE_KEY = "user_plan";
 
-    // Peta Hubungan Kode Negara ke Locale Bahasa
-    const FINGERPRINT_COUNTRY_LOCALE_MAP = {
-        US: "en-US", GB: "en-GB", AU: "en-AU", CA: "en-CA", NZ: "en-NZ", IE: "en-IE",
-        IN: "en-IN", SG: "en-SG", PH: "en-PH", ZA: "en-ZA", NG: "en-NG", DE: "de-DE",
-        FR: "fr-FR", BE: "nl-BE", NL: "nl-NL", ES: "es-ES", MX: "es-MX", IT: "it-IT",
-        BR: "pt-BR", JP: "ja-JP", KR: "ko-KR", CN: "zh-CN", ID: "id-ID", MY: "ms-MY"
-    };
+/**
+ * Mencatat elemen input yang sedang dimodifikasi oleh sistem otomatisasi.
+ * Berguna untuk memutus loop rekursif yang dipicu oleh event handler bawaan situs.
+ */
+function markOwnWrite(elementsArray) {
+    if (!Array.isArray(elementsArray)) return;
+    
+    elementsArray.forEach(element => {
+        if (element) appliedWritesTracker.add(element);
+    });
 
-    // --- SEKTOR RESOLUSI PARAMETER SIDIK JARI ---
-
-    /**
-     * Mendapatkan kode locale bahasa berdasarkan kode ISO negara.
-     */
-    function resolveFingerprintLocaleFromCountryCode(countryCode) {
-        const code = String(countryCode || "").toUpperCase().trim();
-        return FINGERPRINT_COUNTRY_LOCALE_MAP[code] || "en-US";
+    if (executionDebounceTimer) {
+        clearTimeout(executionDebounceTimer);
     }
+    
+    executionDebounceTimer = setTimeout(() => {
+        appliedWritesTracker.clear();
+    }, 2000);
+}
 
-    /**
-     * Menyusun daftar susunan bahasa berdasarkan acuan locale dasar.
-     */
-    function buildFingerprintLanguagesFromLocale(locale) {
-        const activeLocale = String(locale || "").trim() || "en-US";
-        const primaryLang = activeLocale.split("-")[0] || "en";
-        const languages = [activeLocale];
+/**
+ * Mensimulasikan pengetikan karakter secara natural ke elemen input teks.
+ * Memastikan State internal SPA (seperti React/Vue) menangkap perubahan nilai.
+ */
+function simulateTyping(element, value) {
+    if (!element) return;
 
-        if (primaryLang !== "en" && !languages.includes(primaryLang)) {
-            languages.push(primaryLang);
-        }
-        if (!languages.includes("en")) {
-            languages.push("en");
-        }
-        return languages;
-    }
+    element.focus();
+    element.value = value;
 
-    /**
-     * Menyusun header HTTP 'Accept-Language' buatan lengkap dengan pembobotan nilai kualitas (q).
-     */
-    function buildFingerprintAcceptLanguage(locale, customLanguages) {
-        const targets = Array.isArray(customLanguages) && customLanguages.length
-            ? customLanguages
-            : buildFingerprintLanguagesFromLocale(locale);
+    // Dispatch rangkaian event native agar validasi form bawaan web terpicu
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+    element.dispatchEvent(new Event("change", { bubbles: true }));
+    element.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true }));
+    element.blur();
+}
 
-        return targets
-            .filter(Boolean)
-            .map((lang, index) => {
-                if (index === 0) return lang;
-                const qValue = Math.max(0.1, 1 - 0.1 * index).toFixed(1);
-                return `${lang};q=${qValue}`;
-            })
-            .join(",");
-    }
+/**
+ * Mensimulasikan pemilihan nilai pada komponen drop-down HTML (<select>)
+ */
+function simulateSelect(element, value) {
+    if (!element) return;
 
-    /**
-     * Normalisasi payload objek Geografis untuk sinkronisasi runtime content.
-     */
-    function normalizeFingerprintGeoContext(rawGeo) {
-        const data = (rawGeo && typeof rawGeo === "object") ? rawGeo : {};
-        const countryCode = String(data.countryCode || data.country_code || "").toUpperCase().trim();
-        const locale = data.locale || resolveFingerprintLocaleFromCountryCode(countryCode);
-        const languages = Array.isArray(data.languages) && data.languages.length 
-            ? data.languages.map(l => String(l || "").trim()).filter(Boolean)
-            : buildFingerprintLanguagesFromLocale(locale);
+    element.value = value;
+    element.dispatchEvent(new Event("change", { bubbles: true }));
+    element.blur();
+}
 
-        return {
-            ip: String(data.ip || "").trim(),
-            countryCode: countryCode,
-            country: String(data.country || "").trim(),
-            timezone: String(data.timezone || "").trim(),
-            locale: locale,
-            languages: languages,
-            acceptLanguage: data.acceptLanguage || buildFingerprintAcceptLanguage(locale, languages)
-        };
-    }
-
-    /**
-     * Membuat penanda string tanggal lokal format "YYYY-MM-DD" untuk pembatasan kuota harian.
-     */
-    function getLocalDayKey() {
-        const now = new Date();
-        const year = now.getFullYear();
-        const month = String(now.getMonth() + 1).padStart(2, "0");
-        const date = String(now.getDate()).padStart(2, "0");
-        return `${year}-${month}-${date}`;
-    }
-
-
-    // --- SEKTOR METADATA USER-AGENT & EMULASI CLIENT HINTS ---
-
-    /**
-     * Menambahkan stempel build acak natural di akhir UA string agar tidak terdeteksi sebagai tanda statis.
-     */
-    function generateFingerprintUserAgent(baseUa = "") {
-        const targetUa = String(baseUa || navigator.userAgent || "").trim();
-        if (!targetUa) return "";
-
-        const randomBuildStamp = String(Math.floor(Math.random() * 90000) + 10000);
-        if (/\s\d{4,6}$/.test(targetUa)) {
-            return targetUa.replace(/\s\d{4,6}$/, " " + randomBuildStamp);
-        }
-        return targetUa + " " + randomBuildStamp;
-    }
-
-    /**
-     * Mengekstrak data versi murni mesin peramban dengan membuang prefix Mozilla.
-     */
-    function deriveAppVersionFromUserAgent(ua = "") {
-        const cleanUa = String(ua || "").trim();
-        return cleanUa ? cleanUa.replace(/^Mozilla\//i, "") : "";
-    }
-
-    /**
-     * Membentuk struktur tiruan presisi tinggi untuk objek modern `navigator.userAgentData` (Client Hints).
-     */
-    function buildUserAgentMetadata(ua = "", platform = "", isMobile = false) {
-        const cleanUa = String(ua || "");
-        const cleanPlatform = String(platform || "");
+/**
+ * Memvalidasi apakah halaman saat ini dimuat di dalam konteks ekosistem Stripe
+ * yang terintegrasi pada portal pembayaran OpenAI / ChatGPT
+ */
+function isChatGptOpenAiStripeFrame() {
+    try {
+        const currentUrl = String(window.location.href || "").toLowerCase();
+        const isStripeHost = window.location.hostname.includes("stripe.com") || window.location.hostname.includes("stripe.network");
+        const isTargetReferrer = currentUrl.includes("openai.com") || currentUrl.includes("chatgpt.com");
         
-        const chromeMatch = cleanUa.match(/Chrome\/(\d+)(?:\.(\d+)\.(\d+)\.(\d+))?/i);
-        const edgeMatch = cleanUa.match(/Edg\/(\d+)/i);
-        const firefoxMatch = cleanUa.match(/Firefox\/(\d+)/i);
-        
-        const majorVersion = edgeMatch ? edgeMatch[1] : (chromeMatch ? chromeMatch[1] : (firefoxMatch ? firefoxMatch[1] : "120"));
-        const fullVersionString = chromeMatch ? chromeMatch[0].split("/")[1] : majorVersion + ".0.0.0";
-
-        const platformName = /win/i.test(cleanPlatform) ? "Windows" : (/mac/i.test(cleanPlatform) ? "macOS" : "Linux");
-
-        return {
-            mobile: isMobile === true,
-            platform: platformName,
-            brands: [
-                { brand: "Not_A Brand", version: "8" },
-                { brand: "Chromium", version: majorVersion },
-                { brand: "Google Chrome", version: majorVersion }
-            ],
-            fullVersion: fullVersionString,
-            platformVersion: "10.0.0"
-        };
+        return isStripeHost && isTargetReferReferrer;
+    } catch (e) {
+        return false;
     }
+}
 
+/**
+ * Mendeteksi jika form merupakan bagian dari input nomor atau otentikasi kartu
+ */
+function isChatGptOpenAiStripePaymentFrame() {
+    if (!isChatGptOpenAiStripeFrame()) return false;
+    const pageText = String(document.body.innerText || "").toLowerCase();
+    return pageText.includes("card number") || pageText.includes("expiry") || pageText.includes("cvc");
+}
 
-    // --- MODUL SUNTIKAN CONTEXT INJECTION BRIDGING ---
+/**
+ * Mendeteksi jika form merupakan bagian dari input data alamat penagihan
+ */
+function isChatGptOpenAiStripeAddressFrame() {
+    if (!isChatGptOpenAiStripeFrame()) return false;
+    const pageText = String(document.body.innerText || "").toLowerCase();
+    return pageText.includes("billing address") || pageText.includes("postal code") || pageText.includes("country");
+}
 
-    /**
-     * Memeriksa apakah frame saat ini adalah area pembayaran Stripe Checkout milik OpenAI LLC / ChatGPT.
-     */
-    function isChatGptOpenAiStripeFrame() {
-        try {
-            const path = window.location.pathname;
-            const host = window.location.hostname;
-            return host.includes("stripe.com") && path.includes("openai_llc");
-        } catch (e) {
-            return false;
+/**
+ * Eksekusi fallback pengisian form menggunakan Clipboard Event simulasi paste 
+ * apabila mekanisme manipulasi nilai input diblokir oleh target element
+ */
+function simulateMaskedPaste(element, value) {
+    if (!element) return Promise.resolve(false);
+
+    element.focus();
+    element.value = value;
+    
+    const pasteEvent = new ClipboardEvent("paste", {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: new DataTransfer()
+    });
+    
+    if (pasteEvent.clipboardData) {
+        pasteEvent.clipboardData.setData("text/plain", value);
+    }
+    
+    element.dispatchEvent(pasteEvent);
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+    element.dispatchEvent(new Event("change", { bubbles: true }));
+    element.blur();
+    
+    return Promise.resolve(true);
+}
+
+/**
+ * Koordinator pengisian field otomatis pada elemen form yang terdeteksi
+ */
+async function handleChatGptOpenAiStripeFrameFill(profileData, selectors) {
+    if (!isChatGptOpenAiStripeFrame()) return false;
+
+    try {
+        const targetSelectors = (selectors && typeof selectors === "object") ? selectors : {};
+        const cardNumber = String(profileData.cardNumber || "").trim();
+        const cardExpiry = String(profileData.cardExpiry || "").trim();
+        const cardCvc = String(profileData.cardCvc || "").trim();
+        let actionExecuted = false;
+
+        // Blok 1: Iframe Form Data Kartu Kredit/Debit
+        if (isChatGptOpenAiStripePaymentFrame()) {
+            const inputCard = document.querySelector(targetSelectors.cardNumberSelector || "input[name='cardnumber']");
+            const inputExpiry = document.querySelector(targetSelectors.cardExpirySelector || "input[name='exp-date']");
+            const inputCvc = document.querySelector(targetSelectors.cardCvcSelector || "input[name='cvc']");
+
+            if (inputCard && cardNumber) {
+                markOwnWrite([inputCard]);
+                simulateTyping(inputCard, cardNumber);
+                actionExecuted = true;
+            }
+            if (inputExpiry && cardExpiry) {
+                markOwnWrite([inputExpiry]);
+                simulateTyping(inputExpiry, cardExpiry);
+                actionExecuted = true;
+            }
+            if (inputCvc && cardCvc) {
+                markOwnWrite([inputCvc]);
+                simulateTyping(inputCvc, cardCvc);
+                actionExecuted = true;
+            }
+
+            // Kirim pesan sinkronisasi ke Parent Window/Top Frame
+            if (actionExecuted && window.parent && window.parent !== window) {
+                window.parent.postMessage({
+                    type: "PIXEL_STRIPE_FILL_SUCCESS",
+                    frameType: "payment",
+                    status: "completed"
+                }, "*");
+            }
+            return actionExecuted;
         }
-    }
 
-    /**
-     * Menyuntikkan script proteksi ekstensi ke dalam struktur DOM halaman web target sebelum dimuat.
-     */
-    function injectScript(scriptFileName = "inject.js") {
-        try {
-            if (document.getElementById("pixel-protection-core-bridge")) return;
+        // Blok 2: Iframe Form Billing Address
+        if (isChatGptOpenAiStripeAddressFrame()) {
+            const nameValue = String(profileData.billingName || "").trim();
+            const countryValue = String(profileData.billingCountry || "US").trim().toUpperCase();
+            const postalValue = String(profileData.billingPostalCode || "").trim();
 
-            const scriptElement = document.createElement("script");
-            scriptElement.id = "pixel-protection-core-bridge";
+            const inputName = document.querySelector(targetSelectors.billingNameSelector || "input[name='name']");
+            const selectCountry = document.querySelector(targetSelectors.billingCountrySelector || "select[name='country']");
+            const inputPostal = document.querySelector(targetSelectors.billingPostalSelector || "input[name='postalCode']");
+
+            if (inputName && nameValue) {
+                markOwnWrite([inputName]);
+                simulateTyping(inputName, nameValue);
+                actionExecuted = true;
+            }
+            if (selectCountry && countryValue) {
+                markOwnWrite([selectCountry]);
+                simulateSelect(selectCountry, countryValue);
+                actionExecuted = true;
+            }
             
-            // Mengambil path URL runtime internal dari ekstensi browser
-            scriptElement.src = chrome.runtime.getURL(scriptFileName);
-            
-            scriptElement.onload = function() {
-                // Hapus node elemen setelah eksekusi berhasil untuk merapikan DOM halaman
-                this.remove();
-            };
+            // Memberikan jeda waktu (delay) asinkron untuk transisi DOM jika struktur form berubah sesuai kode negara
+            await new Promise(resolve => setTimeout(resolve, 200));
 
-            scriptElement.onerror = function() {
-                console.warn("Gagal menginisialisasi modul pengaman sidik jari Pixel.");
-            };
+            if (inputPostal && postalValue) {
+                markOwnWrite([inputPostal]);
+                simulateTyping(inputPostal, postalValue);
+                actionExecuted = true;
+            }
 
-            // Masukkan secara paksa di simpul teratas dokumen HTML
-            (document.head || document.documentElement).appendChild(scriptElement);
-        } catch (error) {
-            // Mekanisme fallback jika runtime extension sempat terputus/disconnected
-            try {
-                window.postMessage({ source: "pixel_script_injection_fallback", action: "TRIGGER_RETRY" }, "*");
-            } catch (e) {}
+            if (actionExecuted && window.parent && window.parent !== window) {
+                window.parent.postMessage({
+                    type: "PIXEL_STRIPE_FILL_SUCCESS",
+                    frameType: "address",
+                    status: "completed"
+                }, "*");
+            }
+            return actionExecuted;
         }
-    }
 
-
-    // --- ORCHESTRATOR SINKRONISASI MUTATION OBSERVER ---
-
-    /**
-     * Memeriksa kondisi elemen form halaman dan menjalankan otomatisasi intersepsi Stripe OpenAI.
-     */
-    function checkAndInject() {
-        const isStripeFrame = isChatGptOpenAiStripeFrame();
-        const hasPaymentInputs = document.querySelector("input[name='cardnumber']") || document.querySelector("#card-element");
-
-        if (isStripeFrame || hasPaymentInputs) {
-            // Jalankan penyuntikan taktik akselerasi autofill formulir pembayaran
-            injectScript("inject_autofill_bridge.js");
-            
-            // Mengamati perubahan elemen DOM dinamis (Stripe late-loading elements)
-            const domObserver = new MutationObserver((mutations) => {
-                for (const mutation of mutations) {
-                    if (mutation.addedNodes.length) {
-                        const targetCardNode = document.querySelector("input[autocomplete='cc-number']");
-                        if (targetCardNode) {
-                            console.log("Mendeteksi kontainer Kartu Kredit Stripe OpenAI. Mengisi data...");
-                            domObserver.disconnect();
-                        }
-                    }
-                }
-            });
-
-            domObserver.observe(document.body || document.documentElement, {
-                childList: true,
-                subtree: true
+    } catch (err) {
+        if (typeof chrome !== "undefined" && chrome.runtime?.id) {
+            chrome.runtime.sendMessage({
+                action: "LOG_BACKGROUND_ERROR",
+                error: err.message || String(err),
+                context: "stripe_content_script_execution"
             });
         }
     }
+    return false;
+}
 
-    // --- INISIALISASI PEMICU OPERASIONAL AWAL ---
-    if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", checkAndInject);
-    } else {
-        checkAndInject();
-    }
-
-})();
+// --- Manajemen Event & Pesan Masuk Extension API ---
+if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage) {
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+        if (message && message.action === "TRIGGER_STRIPE_AUTOFILL") {
+            handleChatGptOpenAiStripeFrameFill(message.payload, message.selectors)
+                .then(status => sendResponse({ success: status }))
+                .catch(e => sendResponse({ success: false, error: e.message }));
+            return true; // Menginstruksikan Chrome Runtime menjaga channel asinkron tetap aktif
+        }
+    });
+}
